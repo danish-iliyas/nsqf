@@ -13,7 +13,8 @@ import {
     coordinatorLogin,
     getManagedTrainers,
     getAllByCompany,
-    assignStatesToCoordinator
+    assignStatesToCoordinator,
+    getCompanyAttendance
 } from '../controllers/companyAdminController.js';
 import { protectCompanyAdmin , } from '../middleware/authenticationMiddleware.js';
 import { isCoordinator, protect } from '../middleware/coordinatorAuth.js';
@@ -43,6 +44,7 @@ router.post('/assignTrainerToCoordinator', protectCompanyAdmin, assignToCoordina
 router.get('/getManagedTrainers', protect,  getManagedTrainers);
 
 
+router.get('/get-Attendance', protectCompanyAdmin,  getCompanyAttendance);
 
 
 export default router;

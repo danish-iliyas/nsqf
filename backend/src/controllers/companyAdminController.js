@@ -1,6 +1,7 @@
 import CompanyAdmin from '../models/CompanyAdmin.js';
 import State from '../models/State.js';
 import District from '../models/District.js';
+import Attendance from '../models/Attendance.js';
 import Block from '../models/Block.js';
 import StateCoordinator from '../models/StateLevelVc.js'; // Make sure the path to your model is correct
 import mongoose from 'mongoose';
@@ -614,5 +615,86 @@ export const assignStatesToCoordinator = async (req, res) => {
 
     } catch (error) {
         res.status(500).json({ message: 'Server error.', error: error.message });
+    }
+};
+
+
+
+export const getCompanyAttendance = async (req, res) => {
+    try {
+        const companyId = req.user.companyId;
+           console.log("companyIhd",companyId)
+        // This is the main query object we will build
+        const query = { companyId: companyId };
+
+        // --- STEP 1: READ ALL FILTERS FROM THE URL ---
+        // This line is essential and now includes 'status'
+        const { trainerId, schoolId, stateId, status, startDate, endDate } = req.query;
+
+        // --- STEP 2: BUILD THE QUERY BASED ON THE FILTERS ---
+        if (stateId) {
+            const districts = await District.find({ stateId: stateId, companyId: companyId }).select('_id');
+            if (districts.length === 0) return res.status(200).json({ data: [] });
+            const districtIds = districts.map(d => d._id);
+
+            const blocks = await Block.find({ districtId: { $in: districtIds }, companyId: companyId }).select('_id');
+            if (blocks.length === 0) return res.status(200).json({ data: [] });
+            const blockIds = blocks.map(b => b._id);
+            
+            const schools = await School.find({ blockId: { $in: blockIds }, companyId: companyId }).select('_id');
+            if (schools.length === 0) return res.status(200).json({ data: [] });
+            const schoolIds = schools.map(s => s._id);
+
+            query.schoolId = { $in: schoolIds };
+        }
+
+        // Add other simple filters to the query
+        if (trainerId) query.trainerId = trainerId;
+        if (schoolId) query.schoolId = schoolId;
+        if (status) query.status = status; // Added the status filter
+
+        // Handle date range
+        if (startDate || endDate) {
+            query.date = {};
+            if (startDate) query.date.$gte = new Date(startDate);
+            if (endDate) {
+                const endOfDay = new Date(endDate);
+                endOfDay.setHours(23, 59, 59, 999);
+                query.date.$lte = endOfDay;
+            }
+        }
+
+        // --- STEP 3: EXECUTE THE QUERY AND RESHAPE THE DATA ---
+        const attendanceRecords = await Attendance.find(query)
+            .populate('trainerId', 'fullName')
+            .populate({
+                path: 'schoolId',
+                populate: { path: 'blockId', populate: { path: 'districtId', populate: { path: 'stateId', select: 'name' } } }
+            })
+            .sort({ date: -1 });
+
+        const formattedRecords = attendanceRecords.map(record => {
+            const state = record.schoolId?.blockId?.districtId?.stateId || null;
+            return {
+                _id: record._id,
+                date: record.date,
+                status: record.status,
+                trainer: record.trainerId,
+                school: { _id: record.schoolId?._id, name: record.schoolId?.name },
+                state: state ? { _id: state._id, name: state.name } : null,
+                checkInTime: record.checkInTime,
+                checkOutTime: record.checkOutTime,
+                totalMinutesWorked: record.totalMinutesWorked
+            };
+        });
+
+        res.status(200).json({
+            message: `Found ${formattedRecords.length} records.`,
+            data: formattedRecords,
+        });
+
+    } catch (error) {
+        console.error('Error fetching company attendance:', error);
+        res.status(500).json({ message: 'Server error while fetching attendance records.' });
     }
 };
